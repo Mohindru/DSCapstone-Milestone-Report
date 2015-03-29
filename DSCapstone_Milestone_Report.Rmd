@@ -1,0 +1,152 @@
+---
+title: "Data Science Capstone - Milestone Report"
+---
+<h4> Manbir Mohindru </h4>
+<h4> March 2015 </h4>
+<hr>
+
+Welcome to the milestone report for the Capstone Project of the Data Science Specialization from Johns Hopkins University in conjuction with <a href= "http://swiftkey.com/en/"> SwiftKey</a>. In this capstone project we will be applying data science in the area of Natural Language Processing (NLP), Text Mining, and associated tools in R to build a predictive text product. 
+
+This Milestone Report focuses on my understanding of the project, familiarity of the datasets, and goals for the eventual app and algorithm. I have used the formal task categories as listed in the course dashboard followed by the sub-tasks to present my findings thus far. 
+
+
+<h2> Task 1 - Data acquisition and cleaning </h2>
+The goal of this task is to get familiar with the datasets and do the necessary cleaning to accomplish:
+
+1. <i> Tokenization </i> - identifying appropriate tokens such as words, punctuation, and numbers. Writing a function that takes a file as input and returns a tokenized version of it
+2. <i> Profanity filtering </i> - removing profanity and other words I do not want to predict
+
+<h3> Data Source </h3>
+The data source download was provided as part of the project sourced from <a href = "http://www.corpora.heliohost.org/"> HC Corpora </a>. The datasets contain text blocks from twitter, blog, and news sites in four languages - English, Finish, German, and Russian. I will be using the English dataset for this project.
+
+<h3> Data Summary </h3>
+Using the English language dataset, below is some characterstics of the three files - blogs, news, and twitter. This includes summary on the data size, number of lines, and the number of words in eash of the files.
+
+```{r echo=FALSE, cache=TRUE, warning=FALSE}
+library(data.table)
+
+setwd("./data/en_US/")
+
+# Load the data files
+con_blogs = file("en_US.blogs.txt", "rb", encoding = "UTF-8")
+blogs = readLines(con_blogs)
+close(con_blogs)
+
+con_news = file("en_US.news.txt", "rb", encoding = "UTF-8")
+news = readLines(con_news)
+close(con_news)
+
+con_twitter = file("en_US.twitter.txt", "rb", encoding = "UTF-8")
+twitter = readLines(con_twitter)
+close(con_twitter)
+
+datasetNames = c("blogs", "news", "twitter")
+
+# Calculating size, number of lines, and number of words
+dataSize = sapply(datasetNames, function(x) {format(object.size(get(x)), units = "Mb")})
+numLines = sapply(datasetNames, function(x) {length(get(x))})
+numWords = sapply(datasetNames, function(x) {sum(nchar(get(x)))})
+
+setwd("../../")
+
+# Creating ouput for the data summary 
+dataSummary = data.table("Dataset" = datasetNames, "Size" = dataSize,
+                         "Lines" = numLines, "Words" = numWords)
+dataSummary
+```
+
+The summary reveals that the datasets are rather large and will not be conducive to building models and very time consuming. A sample of 5000 lines will be randaomly extracted from each of the three original datasets. The sample of 15,000 lines will be saved so they do not have to be recreated everytime. 
+
+```{r echo=FALSE, cache=TRUE, warning=FALSE}
+set.seed(123)
+sampleSize = 5000
+
+# Creating sample files of 5000 lines for each dataset
+blogsSample = blogs[rbinom(sampleSize, length(blogs),0.5)]
+newsSample = news[rbinom(sampleSize, length(news),0.5)]
+twitterSample = twitter[rbinom(sampleSize, length(twitter),0.5)]
+
+# Merging the sample datasets into one
+trainMerged = c(blogsSample, newsSample, twitterSample)
+
+# Saving merged dataset on disk
+write(trainMerged, "./data/sample/sample_trainMerged.txt")
+```
+
+
+<h3> Data Cleaning </h3>
+With the sampled dataset, let us clean it up which includes the following:
+
+<li> Remove special characters
+<li> Remove punctuations
+<li> Remove numbers
+<li> Remove extra whitespace
+<li> Convert to lowercase
+<li> Remove stop words
+<li> Remove profanity words. 
+
+The list for profanity filtering was obtained from <a href ="http://www.cs.cmu.edu/~biglou/resources/bad-words.txt"> http://www.cs.cmu.edu/~biglou/resources/bad-words.txt </a> with close to 1400 bad words.
+
+```{r echo=FALSE, cache=TRUE, warning=FALSE}
+library(tm)
+
+badWords = c()
+profanityFile = file("./data/bad-words.txt", "r")
+badWords = readLines(profanityFile)
+close(profanityFile)
+
+tokenFunction = function(x) {
+  x = gsub("/|\\||@|#", "", x)  # Remove special characters
+  x = removePunctuation(x)      # Remove puntuations
+  x = removeNumbers(x)          # Remove numbers
+  x = stripWhitespace(x)        # Remove extra whitespace
+  x = tolower(x)                # Convert to lowercase
+  x = removeWords(x,stopwords("en"))  # Remove stop words
+  x = removeWords(x,badWords)         # Remove profanity words
+  return(unlist(x))
+}
+
+trainClean = tokenFunction(trainMerged)
+data.table("Lines" = length(trainClean), "Words" = sum(nchar(trainClean)))
+```
+
+After cleaning the data, we can see it has 15000 lines (5000 each sampled from blogs, news, and twitter), with approximately 1.8 million words to perform some exploratory analysis.
+
+<h2> Task 2 - Exploratory analysis </h2>
+The goal of this task is to understand the distribution and relationship between the words, tokens, and phrases in the training/sample text. We will start by tokenizing the dataset 
+
+```{r echo=FALSE, cache=TRUE, warning=FALSE}
+library(RWeka)
+
+# Convert trainClean to corpus
+trainCorpus = VectorSource(trainClean)
+trainCorpus = VCorpus(trainCorpus)
+
+# Define n-gram functions
+train.ng1 = function(x) NGramTokenizer(x, Weka_control(min=1,max=1))
+train.ng2 = function(x) NGramTokenizer(x, Weka_control(min=2,max=2))
+train.ng3 = function(x) NGramTokenizer(x, Weka_control(min=3,max=3))
+train.ng4 = function(x) NGramTokenizer(x, Weka_control(min=4,max=4))
+```
+
+
+```{r echo=FALSE, cache=TRUE, warning=FALSE}
+tdm = DocumentTermMatrix(trainCorpus, control = list(tokenize=train.ng1))
+ng1 = colSums(as.matrix(tdm))
+barplot(tail(sort(ng1),20),las=2,main="Top 20 Most Frequent 1-gram", 
+        cex.main=1, cex.axis=0.75, horiz=TRUE, col="blue")
+```
+
+Due to some laptop resource contraints I was only able to generate a 1-gram barplot. But this plot does clearly show the most frequest words after tokenizing and removing the profanity and stop words.
+
+<h3> The next steps </h3>
+
+<li> The first order of work is to figure out the laptop resource constratints and complete generations of the 2, 3, and 4 gram outputs. Maybe shrink the train dataset further
+<li> Once that is achieved, confirm the findings are accurate to incorportate into the prediction model
+<li> Upon a successful model, build a Shiny app
+
+<h3> Source Code </h3>
+The source code for this report can be found under my GitHub repo available at: <a href="http://github.com/Mohindru/DSCapstone-Milestone-Report"> DSCapstone-Milestone-Report </a>
+
+<br>
+<br>
